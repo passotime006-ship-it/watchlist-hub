@@ -7,6 +7,7 @@ const KEYS = {
   COMPLETED: 'wh_completed',
   THEME:     'wh_theme',
   SORT:      'wh_sort',
+  LAST_SEASON_CHECK: 'wh_last_season_check',
 };
 
 function storageGet(key) {
@@ -27,7 +28,7 @@ function storageSet(key, val) {
 // 2. Go to Settings -> API -> request a "Developer" API key (v3 auth)
 // 3. Paste the key (a 32-character string) below.
 // Jikan (MyAnimeList) needs NO key at all — it's free and public.
-const TMDB_API_KEY = '519140b0347e36a3d2722d99bb71203f'; // <-- paste your TMDB v3 API key here
+const TMDB_API_KEY = ''; // <-- paste your TMDB v3 API key here
 const TMDB_BASE     = 'https://api.themoviedb.org/3';
 const TMDB_IMG_THUMB = 'https://image.tmdb.org/t/p/w92';
 const TMDB_IMG_FULL  = 'https://image.tmdb.org/t/p/w500';
@@ -323,6 +324,7 @@ function renderWatchlistCard(item) {
         ${item.seasons ? `<span class="tag tag-default">📺 ${item.seasons} Season${item.seasons > 1 ? 's' : ''}</span>` : ''}
         <span class="tag-date">Added ${formatDate(item.addedAt)}</span>
       </div>
+      ${item.notes ? `<div class="card-notes">📝 ${escapeHtml(item.notes)}</div>` : ''}
       <div class="card-actions">
         <button class="btn-primary" onclick="moveToWatching('${item.id}')">▶ Start Watching</button>
         <button class="btn-edit" onclick="openEditModal('${item.id}','watchlist')" title="Edit">✏️</button>
@@ -396,6 +398,7 @@ function renderWatchingCard(item) {
         ${progressBadge}
       </div>
       ${progressControls}
+      ${item.notes ? `<div class="card-notes">📝 ${escapeHtml(item.notes)}</div>` : ''}
       <div class="card-actions">
         <button class="btn-success" onclick="moveToCompleted('${item.id}')">✓ Mark Complete</button>
         <button class="btn-edit" onclick="openEditModal('${item.id}','watching')" title="Edit">✏️</button>
@@ -434,6 +437,7 @@ function renderCompletedCard(item) {
         ${starsHtml}
         ${rating > 0 ? `<span class="star-value">${rating}/5</span>` : '<span style="font-size:11px;color:var(--text-muted);margin-left:4px">Not rated</span>'}
       </div>
+      ${item.notes ? `<div class="card-notes">📝 ${escapeHtml(item.notes)}</div>` : ''}
       <div class="card-actions" style="margin-top:12px">
         <button class="btn-back-watch" onclick="moveBackToWatching('${item.id}')">↩ Back to Watching</button>
         <button class="btn-edit" onclick="openEditModal('${item.id}','completed')" title="Edit">✏️</button>
@@ -745,6 +749,7 @@ function openEditModal(id, tab) {
   editApiAutofill = null;
 
   document.getElementById('editTitleInput').value = item.title;
+  document.getElementById('editNotesInput').value = item.notes || '';
   document.getElementById('editTitleSuggestions').classList.add('hidden');
   document.getElementById('editSelectedPreview').classList.add('hidden');
 
@@ -781,6 +786,7 @@ function saveEdit() {
   item.title    = newTitle;
   item.category = editCat;
   item.subTag   = newSubTag;
+  item.notes    = document.getElementById('editNotesInput').value.trim();
 
   // If the user re-picked a match from TMDB/Jikan while editing, refresh the API-sourced fields
   if (editApiAutofill) {
@@ -1280,8 +1286,179 @@ function initSwipe() {
 }
 
 // ============================================================
-// EVENT LISTENERS
+// TOAST NOTIFICATIONS
 // ============================================================
+function showToast(message, opts = {}) {
+  let toastWrap = document.getElementById('toastWrap');
+  if (!toastWrap) {
+    toastWrap = document.createElement('div');
+    toastWrap.id = 'toastWrap';
+    toastWrap.className = 'toast-wrap';
+    document.body.appendChild(toastWrap);
+  }
+  const toast = document.createElement('div');
+  toast.className = 'toast' + (opts.error ? ' toast-error' : '');
+  toast.innerHTML = `<span>${message}</span>`;
+  toastWrap.appendChild(toast);
+  setTimeout(() => toast.classList.add('toast-out'), 4200);
+  setTimeout(() => toast.remove(), 4600);
+}
+
+// ============================================================
+// BACKUP & RESTORE (export / import as JSON)
+// ============================================================
+function exportBackup() {
+  const payload = {
+    app: 'My Watchlist Hub',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    watchlist, watching, completed,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `watchlist-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('💾 Backup downloaded');
+}
+
+function importBackupFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+
+  reader.onload = (e) => {
+    let data;
+    try {
+      data = JSON.parse(e.target.result);
+    } catch (err) {
+      alert('That file is not valid JSON. Please pick a backup exported from this app.');
+      return;
+    }
+
+    const looksValid = data && Array.isArray(data.watchlist) &&
+      Array.isArray(data.watching) && Array.isArray(data.completed);
+    if (!looksValid) {
+      alert("This file doesn't look like a watchlist backup — missing watchlist/watching/completed lists.");
+      return;
+    }
+
+    const itemCount = data.watchlist.length + data.watching.length + data.completed.length;
+    const ok = confirm(
+      `Restore this backup? It has ${itemCount} title(s) and will REPLACE everything currently in the app. This can't be undone.`
+    );
+    if (!ok) return;
+
+    watchlist = data.watchlist;
+    watching  = data.watching;
+    completed = data.completed;
+    storageSet(KEYS.WATCHLIST, watchlist);
+    storageSet(KEYS.WATCHING, watching);
+    storageSet(KEYS.COMPLETED, completed);
+
+    renderAll();
+    showToast('✅ Backup restored');
+  };
+
+  reader.onerror = () => alert('Could not read that file. Try exporting a fresh backup.');
+  reader.readAsText(file);
+}
+
+// ============================================================
+// AUTO-ADVANCE: detect new seasons for completed series (TMDB only)
+// ============================================================
+async function checkForNewSeasons() {
+  if (!hasTmdbKey()) return; // needs TMDB to know season counts
+
+  // Throttle to once every 6 hours so we don't hammer the API on every reload
+  const lastCheck = parseInt(localStorage.getItem(KEYS.LAST_SEASON_CHECK) || '0', 10);
+  if (Date.now() - lastCheck < 6 * 60 * 60 * 1000) return;
+
+  const candidates = completed.filter(
+    i => i.category === 'series' && i.sourceType === 'tmdb_tv' && i.sourceId
+  );
+  if (candidates.length === 0) {
+    localStorage.setItem(KEYS.LAST_SEASON_CHECK, String(Date.now()));
+    return;
+  }
+
+  const moved = [];
+
+  for (const item of candidates) {
+    try {
+      const details = await tmdbGetTVDetails(item.sourceId);
+      const newCount = details.seasons || 0;
+      const oldCount = item.seasons || 0;
+
+      if (newCount > oldCount) {
+        // Pull the item out of Completed
+        completed = completed.filter(i => i.id !== item.id);
+
+        // Extend episodesPerSeason with the new season(s)' episode counts
+        const oldEpisodes = item.episodesPerSeason || [];
+        const newEpisodes = details.episodesPerSeason || [];
+        const mergedEpisodes = oldEpisodes.slice(0, oldCount);
+        for (let s = oldCount; s < newCount; s++) {
+          mergedEpisodes.push(newEpisodes[s] || 0);
+        }
+
+        item.seasons            = newCount;
+        item.episodesPerSeason  = mergedEpisodes;
+        item.currentSeason      = oldCount + 1;
+        item.currentEpisode     = 1;
+        item.startedAt          = new Date().toISOString();
+        delete item.completedAt;
+
+        watching.push(item);
+        moved.push(item.title);
+      }
+    } catch (err) {
+      // Network hiccup or removed show on TMDB — skip silently, try again next check
+    }
+  }
+
+  if (moved.length > 0) {
+    storageSet(KEYS.WATCHING, watching);
+    storageSet(KEYS.COMPLETED, completed);
+    renderAll();
+    const list = moved.length === 1 ? moved[0] : `${moved.length} shows`;
+    showToast(`📺 New season found for ${escapeHtml(list)} — moved to Watching!`);
+  }
+
+  localStorage.setItem(KEYS.LAST_SEASON_CHECK, String(Date.now()));
+}
+
+// ============================================================
+// PWA: service worker + install prompt
+// ============================================================
+let deferredInstallPrompt = null;
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {
+      // Offline support just won't be available — the app still works online as normal
+    });
+  });
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  const btn = document.getElementById('installBtn');
+  if (btn) btn.classList.remove('hidden');
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  const btn = document.getElementById('installBtn');
+  if (btn) btn.classList.add('hidden');
+  showToast('📲 App installed!');
+});
+
+
 document.addEventListener('DOMContentLoaded', () => {
 
   // Apply saved theme
@@ -1290,6 +1467,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initial render
   renderAll();
+
+  // Check for newly released seasons of completed series (throttled, TMDB-only)
+  checkForNewSeasons();
+
+  // Backup & restore
+  document.getElementById('exportBtn').addEventListener('click', exportBackup);
+  document.getElementById('importBtn').addEventListener('click', () => {
+    document.getElementById('importFileInput').click();
+  });
+  document.getElementById('importFileInput').addEventListener('change', (e) => {
+    importBackupFile(e.target.files[0]);
+    e.target.value = ''; // allow re-selecting the same file later
+  });
+
+  // Install app (PWA)
+  document.getElementById('installBtn').addEventListener('click', async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    document.getElementById('installBtn').classList.add('hidden');
+  });
 
   // Theme toggle
   document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
