@@ -28,7 +28,7 @@ function storageSet(key, val) {
 // 2. Go to Settings -> API -> request a "Developer" API key (v3 auth)
 // 3. Paste the key (a 32-character string) below.
 // Jikan (MyAnimeList) needs NO key at all — it's free and public.
-const TMDB_API_KEY = ''; // <-- paste your TMDB v3 API key here
+const TMDB_API_KEY = '519140b0347e36a3d2722d99bb71203f'; // <-- paste your TMDB v3 API key here
 const TMDB_BASE     = 'https://api.themoviedb.org/3';
 const TMDB_IMG_THUMB = 'https://image.tmdb.org/t/p/w92';
 const TMDB_IMG_FULL  = 'https://image.tmdb.org/t/p/w500';
