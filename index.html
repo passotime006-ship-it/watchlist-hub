@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Watchlist Hub</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#e50914" />
+  <link rel="icon" href="icon-192.png" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-content">
+      <div class="header-top">
+        <div class="app-title">🎬 My Watchlist Hub</div>
+        <div class="header-actions">
+          <button class="theme-toggle-btn hidden" id="installBtn" title="Install app">📲</button>
+          <button class="theme-toggle-btn" id="themeToggleBtn" title="Toggle light/dark mode">🌙</button>
+          <button class="add-btn" id="openModalBtn">
+            <span>＋</span> Add Title
+          </button>
+        </div>
+      </div>
+      <div class="search-row">
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input type="text" class="search-input" id="searchInput"
+            placeholder="Search across all tabs..." />
+        </div>
+        <div class="sort-wrap">
+          <button class="filter-btn" id="sortBtn">
+            ↕ <span id="sortLabel">Recent</span> ▾
+          </button>
+          <div class="filter-dropdown hidden" id="sortDropdown">
+            <button class="filter-option active" data-sort="recent">🕐 Recently Added</button>
+            <button class="filter-option" data-sort="az">🔤 A–Z</button>
+            <button class="filter-option" data-sort="rating">⭐ Rating (High→Low)</button>
+          </div>
+        </div>
+        <div class="filter-wrap">
+          <button class="filter-btn" id="filterBtn">
+            ⚡ <span id="filterLabel">All</span> ▾
+          </button>
+          <div class="filter-dropdown hidden" id="filterDropdown">
+            <button class="filter-option active" data-cat="all">🌐 All Categories</button>
+            <button class="filter-option" data-cat="movies">🎬 Movies</button>
+            <button class="filter-option" data-cat="series">📺 Series</button>
+            <button class="filter-option" data-cat="anime">🎌 Anime</button>
+          </div>
+        </div>
+      </div>
+      <div class="tab-bar" id="tabBar">
+        <button class="tab-btn active" data-tab="watchlist">
+          📋 Watchlist <span class="tab-count" id="watchlistCount">0</span>
+        </button>
+        <button class="tab-btn" data-tab="watching">
+          ▶️ Watching <span class="tab-count" id="watchingCount">0</span>
+        </button>
+        <button class="tab-btn" data-tab="completed">
+          ✅ Completed <span class="tab-count" id="completedCount">0</span>
+        </button>
+        <button class="tab-btn" data-tab="stats">
+          📊 Stats
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- SEARCH RESULTS -->
+  <div class="search-results-wrap hidden" id="searchResults">
+    <div class="container">
+      <div class="search-results-box" id="searchResultsBox"></div>
+    </div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <main class="main" id="mainContent">
+    <div class="container">
+
+      <!-- WATCHLIST TAB -->
+      <div class="tab-panel active" id="tab-watchlist">
+        <div class="cat-section" id="watchlist-movies">
+          <div class="cat-header">
+            <span class="cat-icon">🎬</span>
+            <span class="cat-title">Movies</span>
+            <span class="cat-count" id="wl-movies-count">0</span>
+          </div>
+          <div class="cards-grid" id="wl-movies-grid"></div>
+          <div class="empty-state hidden" id="wl-movies-empty">
+            <div class="empty-art">🎬</div>
+            <div class="empty-title">No movies queued yet</div>
+            <div class="empty-sub">Hit <strong>+ Add Title</strong> to build your watchlist</div>
+          </div>
+        </div>
+        <div class="cat-section" id="watchlist-series">
+          <div class="cat-header">
+            <span class="cat-icon">📺</span>
+            <span class="cat-title">Series</span>
+            <span class="cat-count" id="wl-series-count">0</span>
+          </div>
+          <div class="cards-grid" id="wl-series-grid"></div>
+          <div class="empty-state hidden" id="wl-series-empty">
+            <div class="empty-art">📺</div>
+            <div class="empty-title">No series in queue</div>
+            <div class="empty-sub">Add a series to track it here</div>
+          </div>
+        </div>
+        <div class="cat-section" id="watchlist-anime">
+          <div class="cat-header">
+            <span class="cat-icon">🎌</span>
+            <span class="cat-title">Anime</span>
+            <span class="cat-count" id="wl-anime-count">0</span>
+          </div>
+          <div class="cards-grid" id="wl-anime-grid"></div>
+          <div class="empty-state hidden" id="wl-anime-empty">
+            <div class="empty-art">🎌</div>
+            <div class="empty-title">No anime in queue</div>
+            <div class="empty-sub">Your next binge is one click away</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- WATCHING TAB -->
+      <div class="tab-panel" id="tab-watching">
+        <div class="cat-section">
+          <div class="cat-header">
+            <span class="cat-icon">🎬</span>
+            <span class="cat-title">Movies</span>
+            <span class="cat-count" id="wt-movies-count">0</span>
+          </div>
+          <div class="cards-grid" id="wt-movies-grid"></div>
+          <div class="empty-state hidden" id="wt-movies-empty">
+            <div class="empty-art">🍿</div>
+            <div class="empty-title">Nothing playing right now</div>
+            <div class="empty-sub">Move a movie from your watchlist to start</div>
+          </div>
+        </div>
+        <div class="cat-section">
+          <div class="cat-header">
+            <span class="cat-icon">📺</span>
+            <span class="cat-title">Series</span>
+            <span class="cat-count" id="wt-series-count">0</span>
+          </div>
+          <div class="cards-grid" id="wt-series-grid"></div>
+          <div class="empty-state hidden" id="wt-series-empty">
+            <div class="empty-art">📡</div>
+            <div class="empty-title">No series in progress</div>
+            <div class="empty-sub">Start watching a series to track your progress</div>
+          </div>
+        </div>
+        <div class="cat-section">
+          <div class="cat-header">
+            <span class="cat-icon">🎌</span>
+            <span class="cat-title">Anime</span>
+            <span class="cat-count" id="wt-anime-count">0</span>
+          </div>
+          <div class="cards-grid" id="wt-anime-grid"></div>
+          <div class="empty-state hidden" id="wt-anime-empty">
+            <div class="empty-art">⛩️</div>
+            <div class="empty-title">No anime in progress</div>
+            <div class="empty-sub">Start an anime to track your episodes</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- COMPLETED TAB -->
+      <div class="tab-panel" id="tab-completed">
+        <div class="cat-section">
+          <div class="cat-header">
+            <span class="cat-icon">🎬</span>
+            <span class="cat-title">Movies</span>
+            <span class="cat-count" id="cp-movies-count">0</span>
+          </div>
+          <div class="cards-grid" id="cp-movies-grid"></div>
+          <div class="empty-state hidden" id="cp-movies-empty">
+            <div class="empty-art">🏆</div>
+            <div class="empty-title">No completed movies yet</div>
+            <div class="empty-sub">Finish watching a movie to see it here</div>
+          </div>
+        </div>
+        <div class="cat-section">
+          <div class="cat-header">
+            <span class="cat-icon">📺</span>
+            <span class="cat-title">Series</span>
+            <span class="cat-count" id="cp-series-count">0</span>
+          </div>
+          <div class="cards-grid" id="cp-series-grid"></div>
+          <div class="empty-state hidden" id="cp-series-empty">
+            <div class="empty-art">🎉</div>
+            <div class="empty-title">No completed series yet</div>
+            <div class="empty-sub">Keep watching — you'll finish one soon!</div>
+          </div>
+        </div>
+        <div class="cat-section">
+          <div class="cat-header">
+            <span class="cat-icon">🎌</span>
+            <span class="cat-title">Anime</span>
+            <span class="cat-count" id="cp-anime-count">0</span>
+          </div>
+          <div class="cards-grid" id="cp-anime-grid"></div>
+          <div class="empty-state hidden" id="cp-anime-empty">
+            <div class="empty-art">🌸</div>
+            <div class="empty-title">No completed anime yet</div>
+            <div class="empty-sub">Your completed anime will appear here</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STATS TAB -->
+      <div class="tab-panel" id="tab-stats">
+        <div class="stats-grid" id="statsGrid"></div>
+
+        <div class="backup-section">
+          <div class="backup-header">
+            <span class="backup-icon">💾</span>
+            <div>
+              <div class="backup-title">Backup &amp; Restore</div>
+              <div class="backup-sub">Your data lives only in this browser — export it to be safe.</div>
+            </div>
+          </div>
+          <div class="backup-actions">
+            <button class="backup-btn" id="exportBtn">⬇ Export Backup (.json)</button>
+            <button class="backup-btn backup-btn-outline" id="importBtn">⬆ Restore from Backup</button>
+            <input type="file" id="importFileInput" accept="application/json" class="hidden" />
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- ADD MODAL -->
+  <div class="modal-overlay hidden" id="modalOverlay">
+    <div class="modal" id="modal">
+
+      <!-- STEP 1: MAIN FORM -->
+      <div id="stepMain">
+        <div class="modal-header">
+          <div class="modal-title">✨ Add New Title</div>
+          <button class="modal-close" id="closeModalBtn">✕</button>
+        </div>
+
+        <div class="api-status-banner hidden" id="apiStatusBanner"></div>
+
+        <div class="form-group">
+          <label class="form-label">Title Name</label>
+          <div class="selected-preview hidden" id="selectedPreview"></div>
+          <div class="title-input-wrap">
+            <input type="text" class="form-input" id="titleInput" autocomplete="off"
+              placeholder="e.g. Demon Slayer, Inception, Breaking Bad..." />
+            <div class="suggestions-dropdown hidden" id="titleSuggestions"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Category</label>
+          <div class="cat-btns" id="catBtns">
+            <button class="cat-select-btn active" data-cat="movies">🎬<br/>Movies</button>
+            <button class="cat-select-btn" data-cat="series">📺<br/>Series</button>
+            <button class="cat-select-btn" data-cat="anime">🎌<br/>Anime</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Sub-tag / Genre</label>
+          <div class="select-wrap">
+            <select class="form-select" id="subTagSelect"></select>
+          </div>
+        </div>
+        <div class="form-group hidden" id="seasonsGroup">
+          <label class="form-label">Total Seasons</label>
+          <input type="number" class="form-input" id="seasonsInput" min="1" max="50"
+            placeholder="How many seasons? (leave empty if unknown)" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Add To</label>
+          <div class="status-btns" id="statusBtns">
+            <button class="status-select-btn active" data-status="watchlist">📋 Watchlist</button>
+            <button class="status-select-btn" data-status="watching">▶️ Start Watching</button>
+          </div>
+        </div>
+        <button class="submit-btn" id="mainNextBtn">Add Title</button>
+      </div>
+
+      <!-- STEP 2: EPISODES -->
+      <div id="stepEpisodes" class="hidden">
+        <div class="modal-header">
+          <div class="modal-title" id="epStepTitle">📺 Season 1 Episodes</div>
+          <button class="modal-close" id="closeModalBtn2">✕</button>
+        </div>
+        <div class="season-info-box" id="seasonInfoBox"></div>
+        <div class="form-group">
+          <label class="form-label" id="epInputLabel">Episodes in Season 1</label>
+          <input type="number" class="form-input" id="epInput" min="1"
+            placeholder="How many episodes?" />
+        </div>
+        <div class="season-dots" id="seasonDots"></div>
+        <div class="step-btns">
+          <button class="back-btn hidden" id="epBackBtn">← Previous</button>
+          <button class="submit-btn" id="epNextBtn">Next Season →</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- EDIT MODAL -->
+  <div class="modal-overlay hidden" id="editModalOverlay">
+    <div class="modal" id="editModal">
+      <div class="modal-header">
+        <div class="modal-title">✏️ Edit Title</div>
+        <button class="modal-close" id="closeEditModalBtn">✕</button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Title Name</label>
+        <div class="selected-preview hidden" id="editSelectedPreview"></div>
+        <div class="title-input-wrap">
+          <input type="text" class="form-input" id="editTitleInput" autocomplete="off" placeholder="Title name..." />
+          <div class="suggestions-dropdown hidden" id="editTitleSuggestions"></div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Category</label>
+        <div class="cat-btns" id="editCatBtns">
+          <button class="cat-select-btn active" data-cat="movies">🎬<br/>Movies</button>
+          <button class="cat-select-btn" data-cat="series">📺<br/>Series</button>
+          <button class="cat-select-btn" data-cat="anime">🎌<br/>Anime</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Sub-tag / Genre</label>
+        <div class="select-wrap">
+          <select class="form-select" id="editSubTagSelect"></select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Your Notes <span class="form-label-sub">(thoughts, rewatch reminders, why you dropped it...)</span></label>
+        <textarea class="form-textarea" id="editNotesInput" rows="3" placeholder="e.g. Animation peaked in S2, rewatch before new season..."></textarea>
+      </div>
+      <button class="submit-btn" id="saveEditBtn">💾 Save Changes</button>
+    </div>
+  </div>
+
+  <!-- DELETE CONFIRM MODAL -->
+  <div class="modal-overlay hidden" id="deleteModalOverlay">
+    <div class="modal confirm-modal" id="deleteModal">
+      <div class="confirm-icon">🗑️</div>
+      <div class="confirm-title">Delete this title?</div>
+      <div class="confirm-sub" id="deleteConfirmSub">This cannot be undone.</div>
+      <div class="confirm-btns">
+        <button class="back-btn" id="cancelDeleteBtn">Cancel</button>
+        <button class="submit-btn danger-btn" id="confirmDeleteBtn">Yes, Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
