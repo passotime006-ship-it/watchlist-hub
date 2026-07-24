@@ -28,7 +28,7 @@ function storageSet(key, val) {
 // 2. Go to Settings -> API -> request a "Developer" API key (v3 auth)
 // 3. Paste the key (a 32-character string) below.
 // Jikan (MyAnimeList) needs NO key at all — it's free and public.
-const TMDB_API_KEY = '519140b0347e36a3d2722d99bb71203f'; // <-- paste your TMDB v3 API key here
+const TMDB_API_KEY = ''; // <-- paste your TMDB v3 API key here
 const TMDB_BASE     = 'https://api.themoviedb.org/3';
 const TMDB_IMG_THUMB = 'https://image.tmdb.org/t/p/w92';
 const TMDB_IMG_FULL  = 'https://image.tmdb.org/t/p/w500';
@@ -122,10 +122,30 @@ async function tmdbGetTVDetails(tvId) {
 }
 
 // ---- Jikan: search anime (no API key needed) ----
-async function jikanSearchAnime(query) {
+async function jikanSearchAnime(query, attempt = 0) {
   const url = `${JIKAN_BASE}/anime?q=${encodeURIComponent(query)}&limit=8&sfw=true`;
-  const res = await fetch(url);
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (e) {
+    if (attempt < 2) {
+      await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+      return jikanSearchAnime(query, attempt + 1);
+    }
+    throw new Error('Jikan network error');
+  }
+
+  // 429 = rate limited — wait and retry (max 2 retries)
+  if (res.status === 429) {
+    if (attempt < 2) {
+      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      return jikanSearchAnime(query, attempt + 1);
+    }
+    throw new Error('Jikan rate limited');
+  }
+
   if (!res.ok) throw new Error(`Jikan error (${res.status})`);
+
   const data = await res.json();
   return (data.data || []).map(r => {
     const title = r.title_english || r.title;
@@ -516,13 +536,30 @@ function renderStats() {
   const totalWatchlist = watchlist.length;
   const totalAll       = totalCompleted + totalWatching + totalWatchlist;
 
-  // Total episodes watched across completed series/anime
+  // Total episodes watched across completed & in-progress series/anime
   let totalEpsWatched = 0;
-  [...completed, ...watching].forEach(item => {
-    if (item.episodesPerSeason) {
+
+  // Completed items — count all episodes across all seasons
+  completed.forEach(item => {
+    if (item.category === 'movies') return;
+    if (item.episodesPerSeason && item.episodesPerSeason.length > 0) {
       totalEpsWatched += item.episodesPerSeason.reduce((s, e) => s + (parseInt(e) || 0), 0);
     }
-    if (item.currentEpisode) totalEpsWatched += item.currentEpisode - 1;
+  });
+
+  // Watching items — count only episodes actually watched (up to current season/episode)
+  watching.forEach(item => {
+    if (item.category === 'movies') return;
+    const curSeason  = (item.currentSeason  || 1) - 1; // 0-indexed seasons completed fully
+    const curEpisode = (item.currentEpisode || 1) - 1; // episodes done in current season
+    if (item.episodesPerSeason && item.episodesPerSeason.length > 0) {
+      // Add all fully completed seasons
+      for (let s = 0; s < curSeason && s < item.episodesPerSeason.length; s++) {
+        totalEpsWatched += parseInt(item.episodesPerSeason[s]) || 0;
+      }
+    }
+    // Add episodes done in the current (incomplete) season
+    totalEpsWatched += curEpisode;
   });
 
   // Most watched category (by completed count)
@@ -1189,8 +1226,8 @@ async function performTitleAutocomplete(context, rawQuery) {
   wireManualLink(context);
 }
 
-const debouncedAddAutocomplete  = debounce((q) => performTitleAutocomplete('add', q), 450);
-const debouncedEditAutocomplete = debounce((q) => performTitleAutocomplete('edit', q), 450);
+const debouncedAddAutocomplete  = debounce((q) => performTitleAutocomplete('add', q), 800);
+const debouncedEditAutocomplete = debounce((q) => performTitleAutocomplete('edit', q), 800);
 
 function updateAcHighlight(context) {
   const els = getAcEls(context);
