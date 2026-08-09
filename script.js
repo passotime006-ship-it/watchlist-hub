@@ -68,7 +68,7 @@ function debounce(fn, delay) {
 // ---- TMDB: search movies ----
 async function tmdbSearchMovies(query) {
   const url = `${TMDB_BASE}/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&include_adult=false`;
-  const res = await fetch(url);
+  const res = await fetchWithRetry(url);
   if (!res.ok) throw new Error(`TMDB error (${res.status})`);
   const data = await res.json();
   return (data.results || []).slice(0, 8).map(r => ({
@@ -88,7 +88,7 @@ async function tmdbSearchMovies(query) {
 // ---- TMDB: search TV / series ----
 async function tmdbSearchTV(query) {
   const url = `${TMDB_BASE}/search/tv?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&include_adult=false`;
-  const res = await fetch(url);
+  const res = await fetchWithRetry(url);
   if (!res.ok) throw new Error(`TMDB error (${res.status})`);
   const data = await res.json();
   return (data.results || []).slice(0, 8).map(r => ({
@@ -108,7 +108,7 @@ async function tmdbSearchTV(query) {
 // ---- TMDB: fetch season/episode breakdown for a chosen TV show ----
 async function tmdbGetTVDetails(tvId) {
   const url = `${TMDB_BASE}/tv/${tvId}?api_key=${TMDB_API_KEY}`;
-  const res = await fetch(url);
+  const res = await fetchWithRetry(url);
   if (!res.ok) throw new Error(`TMDB error (${res.status})`);
   const data = await res.json();
   const seasons = (data.seasons || [])
@@ -122,30 +122,10 @@ async function tmdbGetTVDetails(tvId) {
 }
 
 // ---- Jikan: search anime (no API key needed) ----
-async function jikanSearchAnime(query, attempt = 0) {
+async function jikanSearchAnime(query) {
   const url = `${JIKAN_BASE}/anime?q=${encodeURIComponent(query)}&limit=8&sfw=true`;
-  let res;
-  try {
-    res = await fetch(url);
-  } catch (e) {
-    if (attempt < 2) {
-      await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
-      return jikanSearchAnime(query, attempt + 1);
-    }
-    throw new Error('Jikan network error');
-  }
-
-  // 429 = rate limited — wait and retry (max 2 retries)
-  if (res.status === 429) {
-    if (attempt < 2) {
-      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-      return jikanSearchAnime(query, attempt + 1);
-    }
-    throw new Error('Jikan rate limited');
-  }
-
+  const res = await fetchWithRetry(url);
   if (!res.ok) throw new Error(`Jikan error (${res.status})`);
-
   const data = await res.json();
   return (data.data || []).map(r => {
     const title = r.title_english || r.title;
@@ -167,11 +147,123 @@ async function jikanSearchAnime(query, attempt = 0) {
   });
 }
 
+// ---- AniList: search anime (no API key needed) ----
+// Primary anime source now — a single GraphQL POST, generous public rate
+// limit (~90 req/min), and no shared-proxy congestion the way Jikan has.
+const ANILIST_BASE = 'https://graphql.anilist.co';
+const ANILIST_QUERY = `
+  query ($search: String) {
+    Page(page: 1, perPage: 8) {
+      media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
+        id
+        title { english romaji }
+        coverImage { large medium }
+        genres
+        averageScore
+        episodes
+        seasonYear
+        startDate { year }
+      }
+    }
+  }
+`;
+
+async function anilistSearchAnime(query) {
+  const res = await fetchWithRetry(ANILIST_BASE, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ query: ANILIST_QUERY, variables: { search: query } }),
+  });
+  if (!res.ok) throw new Error(`AniList error (${res.status})`);
+  const json = await res.json();
+  const list = json?.data?.Page?.media || [];
+  return list.map(r => ({
+    sourceType: 'anilist_anime',
+    sourceId:   r.id,
+    title:      r.title.english || r.title.romaji,
+    year:       r.seasonYear || r.startDate?.year || '',
+    poster:     r.coverImage?.large || r.coverImage?.medium || null,
+    thumb:      r.coverImage?.medium || r.coverImage?.large || null,
+    genre:      (r.genres || []).slice(0, 3).join(', '),
+    apiRating:  r.averageScore ? Math.round(r.averageScore) / 10 : null, // AniList is 0-100, MAL-style display is 0-10
+    seasons:    1,
+    episodesPerSeason: r.episodes ? [r.episodes] : null,
+  }));
+}
+
+// ---- Small in-memory cache so retyping/re-focusing a query already
+//      searched this session doesn't re-hit the network at all. ----
+const searchCache = new Map();
+const SEARCH_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function cacheGet(key) {
+  const hit = searchCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > SEARCH_CACHE_TTL_MS) { searchCache.delete(key); return null; }
+  return hit.value;
+}
+function cacheSet(key, value) {
+  searchCache.set(key, { value, at: Date.now() });
+}
+
+// ---- Retry wrapper: on a network drop or a 429/5xx, wait and try again
+//      (honoring Retry-After if the server sends one) before giving up.
+//      Turns a single transient hiccup from either API into a silent
+//      retry instead of an instant "couldn't reach the database". ----
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function fetchWithRetry(url, options = {}, retries = 2, baseDelayMs = 600) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    let res;
+    try {
+      res = await fetch(url, options);
+    } catch (networkErr) {
+      lastErr = networkErr;
+      if (attempt === retries) throw networkErr;
+      await sleep(baseDelayMs * (attempt + 1));
+      continue;
+    }
+    if (res.ok || (res.status < 429 && res.status !== 500 && res.status !== 502 && res.status !== 503)) {
+      return res; // success, or a non-retryable error (e.g. 400) — let the caller handle it
+    }
+    if (attempt === retries) return res; // out of retries, hand back the failed response as-is
+    const retryAfterHeader = res.headers.get('Retry-After');
+    const wait = retryAfterHeader ? parseFloat(retryAfterHeader) * 1000 : baseDelayMs * (attempt + 1);
+    await sleep(Math.min(wait, 4000));
+  }
+  throw lastErr || new Error('fetchWithRetry: exhausted retries');
+}
+
+// Unified anime search: AniList first, Jikan as a fallback if AniList
+// itself has a bad moment — two independent free APIs are far less
+// likely to both be down at once than relying on either alone.
+async function searchAnimeCombined(query) {
+  const cacheKey = `anime:${query.trim().toLowerCase()}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  let results;
+  try {
+    results = await anilistSearchAnime(query);
+  } catch (primaryErr) {
+    console.warn('AniList search failed, falling back to Jikan:', primaryErr);
+    results = await jikanSearchAnime(query); // if this also throws, it propagates to the caller
+  }
+  cacheSet(cacheKey, results);
+  return results;
+}
+
 // Unified search dispatcher based on the category currently selected in a form
 async function searchTitlesForCategory(category, query) {
-  if (category === 'movies') return tmdbSearchMovies(query);
-  if (category === 'series') return tmdbSearchTV(query);
-  return jikanSearchAnime(query); // anime
+  const cacheKey = `${category}:${query.trim().toLowerCase()}`;
+  if (category === 'anime') return searchAnimeCombined(query);
+
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+  const results = category === 'movies' ? await tmdbSearchMovies(query) : await tmdbSearchTV(query);
+  cacheSet(cacheKey, results);
+  return results;
 }
 
 // ============================================================
@@ -536,30 +628,13 @@ function renderStats() {
   const totalWatchlist = watchlist.length;
   const totalAll       = totalCompleted + totalWatching + totalWatchlist;
 
-  // Total episodes watched across completed & in-progress series/anime
+  // Total episodes watched across completed series/anime
   let totalEpsWatched = 0;
-
-  // Completed items — count all episodes across all seasons
-  completed.forEach(item => {
-    if (item.category === 'movies') return;
-    if (item.episodesPerSeason && item.episodesPerSeason.length > 0) {
+  [...completed, ...watching].forEach(item => {
+    if (item.episodesPerSeason) {
       totalEpsWatched += item.episodesPerSeason.reduce((s, e) => s + (parseInt(e) || 0), 0);
     }
-  });
-
-  // Watching items — count only episodes actually watched (up to current season/episode)
-  watching.forEach(item => {
-    if (item.category === 'movies') return;
-    const curSeason  = (item.currentSeason  || 1) - 1; // 0-indexed seasons completed fully
-    const curEpisode = (item.currentEpisode || 1) - 1; // episodes done in current season
-    if (item.episodesPerSeason && item.episodesPerSeason.length > 0) {
-      // Add all fully completed seasons
-      for (let s = 0; s < curSeason && s < item.episodesPerSeason.length; s++) {
-        totalEpsWatched += parseInt(item.episodesPerSeason[s]) || 0;
-      }
-    }
-    // Add episodes done in the current (incomplete) season
-    totalEpsWatched += curEpisode;
+    if (item.currentEpisode) totalEpsWatched += item.currentEpisode - 1;
   });
 
   // Most watched category (by completed count)
@@ -1226,8 +1301,8 @@ async function performTitleAutocomplete(context, rawQuery) {
   wireManualLink(context);
 }
 
-const debouncedAddAutocomplete  = debounce((q) => performTitleAutocomplete('add', q), 800);
-const debouncedEditAutocomplete = debounce((q) => performTitleAutocomplete('edit', q), 800);
+const debouncedAddAutocomplete  = debounce((q) => performTitleAutocomplete('add', q), 450);
+const debouncedEditAutocomplete = debounce((q) => performTitleAutocomplete('edit', q), 450);
 
 function updateAcHighlight(context) {
   const els = getAcEls(context);
