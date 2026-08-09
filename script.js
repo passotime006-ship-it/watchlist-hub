@@ -628,13 +628,24 @@ function renderStats() {
   const totalWatchlist = watchlist.length;
   const totalAll       = totalCompleted + totalWatching + totalWatchlist;
 
-  // Total episodes watched across completed series/anime
+  // Total episodes watched: completed items count in full; in-progress
+  // ("watching") items only count seasons already fully finished plus
+  // episodes watched so far in the current season — not the whole show's
+  // total episode count, which was the bug (a single "watching" entry for
+  // a 1000+ episode show was inflating this instantly).
   let totalEpsWatched = 0;
-  [...completed, ...watching].forEach(item => {
+  completed.forEach(item => {
     if (item.episodesPerSeason) {
       totalEpsWatched += item.episodesPerSeason.reduce((s, e) => s + (parseInt(e) || 0), 0);
     }
-    if (item.currentEpisode) totalEpsWatched += item.currentEpisode - 1;
+  });
+  watching.forEach(item => {
+    if (item.episodesPerSeason && item.currentSeason) {
+      for (let s = 1; s < item.currentSeason; s++) {
+        totalEpsWatched += parseInt(item.episodesPerSeason[s - 1]) || 0;
+      }
+    }
+    if (item.currentEpisode) totalEpsWatched += Math.max(0, item.currentEpisode - 1);
   });
 
   // Most watched category (by completed count)
